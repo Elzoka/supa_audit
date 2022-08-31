@@ -2,10 +2,8 @@
 /*
     Generic Audit Trigger
     Linear Time Record Version History
-
     Date:
         2022-02-03
-
     Purpose:
         Generic audit history for tables including an indentifier
         to enable indexed linear time lookup of a primary key's version history
@@ -43,6 +41,8 @@ create table audit.record_version(
     record         jsonb,
     -- previous record contents for UPDATE/DELETE
     old_record     jsonb,
+
+    diff     jsonb,
 
     -- at least one of record_id or old_record_id is populated, except for truncates
     check (coalesce(record_id, old_record_id) is not null or op = 'TRUNCATE'),
@@ -151,6 +151,26 @@ as $$
 $$;
 
 
+create or replace function audit.jsonb_diff_val(old jsonb,new jsonb)
+returns jsonb as $$
+declare
+  result jsonb;
+  v record;
+begin
+   result = old;
+   for v in select * from jsonb_each(new) loop
+     if result @> jsonb_build_object(v.key,v.value)
+        then result = result - v.key;
+     elsif result ? v.key then continue;
+     else
+        result = result || jsonb_build_object(v.key,'null');
+     end if;
+   end loop;
+   return result;
+end;
+$$ language plpgsql;
+
+
 create or replace function audit.insert_update_delete_trigger()
     returns trigger
     security definer
@@ -166,6 +186,8 @@ declare
 
     old_record_jsonb jsonb = to_jsonb(old);
     old_record_id uuid = audit.to_record_id(TG_RELID, pkey_cols, old_record_jsonb);
+
+    diff jsonb = audit.jsonb_diff_val(old_record_jsonb, record_jsonb);
 begin
 
     insert into audit.record_version(
@@ -176,7 +198,8 @@ begin
         table_schema,
         table_name,
         record,
-        old_record
+        old_record,
+        diff
     )
     select
         record_id,
@@ -186,7 +209,8 @@ begin
         TG_TABLE_SCHEMA,
         TG_TABLE_NAME,
         record_jsonb,
-        old_record_jsonb;
+        old_record_jsonb,
+        diff;
 
     return coalesce(new, old);
 end;
