@@ -42,7 +42,9 @@ create table audit.record_version(
     -- previous record contents for UPDATE/DELETE
     old_record     jsonb,
 
-    diff     jsonb,
+    diff           jsonb,
+
+    created_by     text NOT NULL DEFAULT current_user,
 
     -- at least one of record_id or old_record_id is populated, except for truncates
     check (coalesce(record_id, old_record_id) is not null or op = 'TRUNCATE'),
