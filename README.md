@@ -16,7 +16,6 @@ The `supa_audit` PostgreSQL extension is a generic solution for tracking changes
 
 The audit table, `audit.record_version`, leverages each records primary key values to produce a stable `record_id::uuid`, enabling efficient (linear time) history queries.
 
-
 ## Usage
 
 ```sql
@@ -27,8 +26,11 @@ create table public.account(
     name text not null
 );
 
--- Enable auditing
+-- Enable auditing Without recursive diff
 select audit.enable_tracking('public.account'::regclass);
+
+-- Enable auditing With recursive diff
+select audit.enable_tracking('public.account'::regclass, true);
 
 -- Insert a record
 insert into public.account(id, name)
@@ -90,12 +92,11 @@ nix-shell --run "pg_13_supa_audit psql"
 
 ## Performance
 
-
 ### Write Throughput
+
 Auditing tables reduces throughput of inserts, updates, and deletes.
 
 It is not reccomended to enable tracking on tables with a peak write throughput over 3k ops/second.
-
 
 ### Querying
 
