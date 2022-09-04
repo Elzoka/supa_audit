@@ -152,7 +152,7 @@ as $$
         end
 $$;
 
-create or replace function audit.jsonb_diff_val(old jsonb,new jsonb)
+create or replace function audit.jsonb_diff_val(old jsonb,new jsonb, enable_recursive_tracking boolean)
 returns jsonb as $$
 declare
     result jsonb;
@@ -171,9 +171,9 @@ begin
     end loop;
 
     for v in select * from jsonb_each(new) loop
-        if jsonb_typeof(old->v.key) = 'object' and jsonb_typeof(new->v.key) = 'object'
+        if enable_recursive_tracking is true and jsonb_typeof(old->v.key) = 'object' and jsonb_typeof(new->v.key) = 'object'
         then
-            object_result = jsonb_diff_val(old->v.key, new->v.key);
+            object_result = audit.jsonb_diff_val(old->v.key, new->v.key, enable_recursive_tracking);
             -- check if result is not empty 
             i := (select count(*) from jsonb_each(object_result));
             if i = 0
@@ -211,7 +211,7 @@ declare
     old_record_jsonb jsonb = to_jsonb(old);
     old_record_id uuid = audit.to_record_id(TG_RELID, pkey_cols, old_record_jsonb);
 
-    diff jsonb = audit.jsonb_diff_val(old_record_jsonb, record_jsonb);
+    diff jsonb = audit.jsonb_diff_val(old_record_jsonb, record_jsonb, TG_ARGV[0]::boolean);
 begin
 
     insert into audit.record_version(
@@ -265,7 +265,7 @@ end;
 $$;
 
 
-create or replace function audit.enable_tracking(regclass regclass)
+create or replace function audit.enable_tracking(regclass regclass, enable_recursive_tracking boolean default false)
     returns void
     volatile
     security definer
@@ -278,8 +278,9 @@ declare
             after insert or update or delete
             on %s
             for each row
-            execute procedure audit.insert_update_delete_trigger();',
-        $1
+            execute procedure audit.insert_update_delete_trigger(%s);',
+        $1,
+        $2
     );
 
     statement_stmt text = format('
