@@ -152,23 +152,45 @@ as $$
         end
 $$;
 
-
 create or replace function audit.jsonb_diff_val(old jsonb,new jsonb)
 returns jsonb as $$
 declare
-  result jsonb;
-  v record;
+    result jsonb;
+    object_result jsonb;
+    i int;
+    v record;
 begin
-   result = old;
-   for v in select * from jsonb_each(new) loop
-     if result @> jsonb_build_object(v.key,v.value)
-        then result = result - v.key;
-     elsif result ? v.key then continue;
-     else
-        result = result || jsonb_build_object(v.key,'null');
-     end if;
-   end loop;
-   return result;
+    if jsonb_typeof(old) = 'null'
+    then 
+        return new;
+    end if;
+
+    result = old;
+    for v in select * from jsonb_each(old) loop
+        result = result || jsonb_build_object(v.key, null);
+    end loop;
+
+    for v in select * from jsonb_each(new) loop
+        if jsonb_typeof(old->v.key) = 'object' and jsonb_typeof(new->v.key) = 'object'
+        then
+            object_result = jsonb_diff_val(old->v.key, new->v.key);
+            -- check if result is not empty 
+            i := (select count(*) from jsonb_each(object_result));
+            if i = 0
+            then 
+                result = result - v.key; --if empty remove
+            else 
+                result = result || jsonb_build_object(v.key,object_result);
+            end if;
+        elsif old->v.key = new->v.key then 
+            result = result - v.key;
+        else
+            result = result || jsonb_build_object(v.key,v.value);
+        end if;
+    end loop;
+
+    return result;
+
 end;
 $$ language plpgsql;
 
@@ -243,7 +265,7 @@ end;
 $$;
 
 
-create or replace function audit.enable_tracking(regclass)
+create or replace function audit.enable_tracking(regclass regclass)
     returns void
     volatile
     security definer
